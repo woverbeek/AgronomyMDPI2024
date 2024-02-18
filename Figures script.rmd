@@ -1,0 +1,622 @@
+# Load libraries, import data, set ggplot parameters for figures
+```{r message=FALSE, warning=F}
+if (!requireNamespace("here", quietly = TRUE)){install.packages("here")}
+source(here::here("scripts", "library.R"))
+ipak()
+source(here::here("scripts", "data_import.R"))
+library(ggmap)
+library(ggalluvial)
+
+GPSpoints <- read.csv("raw_data/Coordonees GPS.csv")
+results <- readxl::read_excel("raw_data/MAP.xlsx")
+timedf <- readxl::read_excel("raw_data/Données 2014-2020.xlsx")
+
+```
+
+# Create figure 1
+```{r}
+# Add site features
+GPSpoints$sites <- c("E", "C", "F", "I", "H", "G", "A", "B", "D")
+
+# Find static image on google map
+sbbox <- make_bbox(lon = GPSpoints$long, lat = GPSpoints$lat)
+sbbox
+
+#Create zoomed-in map and save it
+sq_map <- get_map(location = sbbox, maptype= "satellite", source = "google", zoom = 9)
+ggmap(sq_map)+geom_point(data= GPSpoints, mapping = aes(long, lat), color = "red")+
+  geom_text(data=GPSpoints, aes(long, lat, label = sites), hjust=-1, color = "yellow")
+
+ggsave(here::here("output", paste0("figure1_1.png")),
+width = 8, height = 5, units = c("in"), dpi = 300)
+
+#Create zoomed-out map and save it
+sq_map <- get_map(location = sbbox, maptype= "satellite", source = "google", zoom = 3)
+ggmap(sq_map)+geom_point(data= GPSpoints, mapping = aes(long, lat), color = "red")
+  #geom_text(data=GPSpoints, aes(long, lat, label = sites), hjust=-1, color = "yellow")
+
+ggsave(here::here("output", paste0("figure1_2.png")),
+width = 8, height = 5, units = c("in"), dpi = 300)
+```
+
+# Create figure 2
+```{r}
+tmp <- results %>%
+  dplyr::rename(Crop_rotation = CroppingSys) %>%
+  mutate(Crop_rotation=factor(Crop_rotation, levels=c("3C + CC", "2C + Cer Rye", "2C", "Org-2C"))) %>%
+  dplyr::rename(Manure_frequency = gFertiOrg) %>%
+  mutate(Manure_frequency= recode(Manure_frequency, "Mineral" = "Never", "Org. Regulier" = "Frequent", "Org. Irregulier" = "Infrequent")) %>%
+  mutate(Manure_frequency = factor(Manure_frequency, levels= c("Never", "Infrequent", "Frequent")))%>%
+  dplyr::rename(Tillage = gTravail) %>%
+  mutate(Tillage= recode(Tillage, "Intensif" = "Conventional", "Sans" = "No-till", "Superficiel" = "Minimum")) %>%
+  mutate(Tillage = factor(Tillage, levels= c("No-till", "Minimum", "Conventional"))) %>%
+  mutate(site4ans = factor(site4ans, levels= c("I", "H", "G", "F","E","D","C","B","A"))) %>%
+  mutate(Gly3ans_chiffre = recode(Gly3ans_chiffre,  "<1350 g/ha/year" = "<5400 g/ha",">1350 g/ha/year"= ">5400 g/ha")) %>%
+  mutate(Gly3ans_chiffre = factor(Gly3ans_chiffre, levels= c(">5400 g/ha", "<5400 g/ha", "None (Organic)")))
+  
+
+tmp %>%
+   group_by(site4ans, regie, Crop_rotation, Tillage, Manure_frequency, Gly3ans_chiffre) %>%
+   summarise(Freq=n()) %>% na.omit() -> tmp
+
+ggplot(tmp, aes(axis1 = Crop_rotation, 
+           # axis2 = CroppingSys2, 
+           axis2 = Manure_frequency,
+           axis3 = Tillage,
+           axis5 = Gly3ans_chiffre,
+           # axis6 = Gly3ans_2,
+           # axis7 = TextureClass,
+           axis8 = site4ans,
+           y = Freq)) +
+   geom_alluvium(aes(fill = site4ans)) +
+   geom_stratum() +
+   geom_text(stat = "stratum", aes(label = after_stat(stratum)),
+             size = 3, angle=90) +
+   scale_x_discrete(limits = c("Crop rotation", "Manure frequency","Tillage",
+                               "Glyphosate found within GBH","Site"),
+                   expand = c(0.15, 0.05)) +
+   # coord_flip() +
+   scale_fill_viridis_d() + 
+   theme(legend.position = "none",
+        axis.text.x = element_text(size = 12),
+        axis.title.y = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        panel.grid = element_blank())
+
+ggsave(here::here("output", paste0("figure2.png")),
+width = 8, height = 5, units = c("in"), dpi = 300)
+
+```
+
+
+# Figure 3
+
+```{r}
+
+plotLEMfig3 <- list(
+  #scale_fill_manual(values = color_lem),
+  #scale_color_manual(values = color_lem),
+  theme_light(),
+  theme(axis.text.y = element_text(size=10), 
+        axis.title= element_text(size=14, face = "bold"), 
+        legend.text = element_text(size=10), 
+        strip.text.x = element_text(face = "bold", size = 12, color = "black"),
+        strip.text.y = element_text(face = "bold", size = 12, color = "black")),
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()),
+  theme(plot.title=element_text(size=18, face="bold", color="black")),
+  theme(plot.subtitle=element_text(size=10, face="italic", color="black")),
+  theme(legend.position="bottom")
+)
+
+timedf2 <- timedf %>%
+    filter(!`Producer ID` %in% c("1", "2")) %>%
+    mutate(Year= factor(Year))%>%
+  mutate(logGlypho = log(Glyphosate)) %>%
+  mutate(logAMPA = log(AMPA))%>%
+  dplyr::rename("ProducerID" = "Producer ID")
+
+
+
+aovtimeGly <-aov(data= timedf2, logGlypho~Year*ProducerID)
+summary(aovtimeGly)
+tukeyGly <- TukeyHSD(aovtimeGly)
+lettersgly <- multcompLetters4(aovtimeGly, tukeyGly)
+
+aovtimeAMPA <-aov(data= timedf2, logAMPA~Year*ProducerID)
+summary(aovtimeAMPA)
+TukeyAMPA <-TukeyHSD(aovtimeAMPA)
+lettersampa <- multcompLetters4(aovtimeAMPA, TukeyAMPA)
+
+cldgly <- as.data.frame.list(lettersgly$`Year:ProducerID`)
+cldgly$`Year:Producer` <- row.names(cldgly)
+cldgly <- cldgly[order(cldgly$`Year:Producer`),]
+
+cldAMPA <- as.data.frame.list(lettersampa$`Year:ProducerID`)
+cldAMPA$`Year:Producer` <- row.names(cldAMPA)
+cldAMPA <- cldAMPA[order(cldAMPA$`Year:Producer`),]
+
+
+tmp <- timedf %>%
+  gather("Pesticide", "mean", "AMPA", "Glyphosate")%>%
+  mutate(Year= factor(Year))%>%
+  filter(!`Producer ID` %in% c("1", "2")) %>%
+  mutate(`Year:Producer` = paste0(Year, ":", `Producer ID`))
+
+tmp2 <- timedf %>%
+  filter(!`Producer ID` %in% c("1", "2")) %>%
+  group_by(`Producer ID`, Year) %>%
+  summarise(sdglypho = sd(Glyphosate), heightGly = max(Glyphosate)+0.1,  Glyphosate = mean(Glyphosate), sdAMPA = sd(AMPA), heightAMPA = max(AMPA)+0.1,  AMPA = mean(AMPA), ) %>%
+  mutate(Year= factor(Year))%>%
+  mutate(`Year:Producer` = paste0(Year, ":", `Producer ID`))
+  
+tmp2 <- tmp2[order(tmp2$`Year:Producer`),]
+tmp2$lettersgly <- cldgly$Letters
+tmp2$lettersAMPA <- cldAMPA$Letters
+
+tmp2 <- tmp2 %>%
+    gather("Pesticide", "mean", "AMPA", "Glyphosate") %>%
+  gather("Pesticide2", "sd", "sdAMPA", "sdglypho") %>%
+  gather("PestLetters", "Letters", "lettersgly", "lettersAMPA") %>%
+  gather("PestHeight", "Height", "heightGly", "heightAMPA") 
+
+tmp2 <- tmp2[c(46:60, 181:195),]
+tmp2[is.na(tmp2)] <- 0
+
+tmp2 <- tmp2 %>%
+  mutate(Pesticide = factor(Pesticide, level=c("Glyphosate","AMPA")))
+tmp <- tmp %>%
+  mutate(Pesticide = factor(Pesticide, level=c("Glyphosate","AMPA")))
+
+
+ggplot(tmp2, aes(Year, mean))+
+  geom_boxplot(data= tmp, aes(Year, mean, fill = Year))+
+  geom_text(aes(label = Letters, y= Height))+
+  facet_grid(Pesticide~`Producer ID`, scales = "free") +
+  labs(x="Sampling year",
+       y="Content in the soil horizon (μg.g-1 dry soil)") +
+  plotLEMfig3
+ggsave('output/Figure3.jpeg', dpi=500, width=8, height=5)
+```
+
+
+# Create figure 4
+```{r}
+
+color_lem <- c( "#E41A1C", "#4DAF4A")
+plotLEMfig4 <- list(
+  scale_fill_manual(values = color_lem),
+  scale_color_manual(values = color_lem),
+  theme_light(),
+  theme(axis.text.y = element_text(size=12), 
+        axis.text.x = element_text(size = 8),
+        axis.title= element_text(face = "bold", size=14),
+        legend.key.size = unit(1.2, 'cm'),
+        legend.title = element_text(face = "bold", size=13),
+        legend.text = element_text(size=12), 
+        strip.text.x = element_text(face = "bold", size = 15, color = "black"),
+        strip.text.y = element_text(face = "bold", size = 15, color = "black")),
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()),
+  theme(plot.title=element_text(size=15, face="bold", color="black")),
+  theme(plot.subtitle=element_text(size=10, face="italic", color="black")),
+  theme(legend.position="bottom")
+)
+
+lmdb2 <- results %>%
+  filter(horizon == "0-20cm") %>%
+  filter(!site4ans %in% c("A", "B"))
+
+lmdb <- lmdb2 %>%
+  dplyr::select(ID, site4ans, annee, horizon, Gly4ans,Glypho_annee_echant, GlyBH3years, CroppingSys, gFertiOrg, gTravail, pH, CEC, ISP, P, Argile, Fe, Kd, MO, pH_SMP)
+
+#Scale all features
+lmdbnum <- sapply(lmdb, is.numeric) 
+lmdb[lmdbnum] <- sapply(lmdb[lmdbnum], scale, scale=T)
+#Add response variable and log-transform it
+Glyphosate <- lmdb2$Glyphosate
+AMPA <- lmdb2$AMPA
+lmdb <- cbind(lmdb,Glyphosate, AMPA)
+lmdb <- lmdb %>%
+  dplyr::mutate(logGlypho = log(Glyphosate)) %>%
+  dplyr::mutate(logAMPA = log(AMPA))
+
+
+#Linear model for environmental variable
+lmmod <- lm(data= lmdb, logGlypho ~ pH + MO + CEC + ISP + Argile + Fe)
+summary(lmmod)
+sum.lin.mod.glypho <- summary(lmmod)
+
+#Linear model for cropping variable
+lmmod <- aov(data= lmdb, logGlypho ~ Gly4ans + gFertiOrg + CroppingSys)
+summary(lmmod)
+sum.lin.mod.glypho <- summary(lmmod)
+
+#Perform linear model
+lmmod <- lm(data= lmdb, logGlypho ~ GlyBH3years + ISP + Argile + pH + CEC )
+summary(lmmod)
+sum.lin.mod.glypho <- summary(lmmod)
+
+#Significance of coefficients
+lmmod_df <- data.frame(summary(lmmod)$coefficients)
+lmmod_df$descr <- as.factor(c("Intercept", "Last 3 years
+                              GBH applications", "ISP", 
+                                 "Clay content", "pH", "CEC"))
+lmmod_df$descr <- factor(lmmod_df$descr, levels = lmmod_df$descr)
+lmmod_df$is_significant <- factor(ifelse(lmmod_df$Pr...t.. <= 0.05, "significant effect", "non-significant effect"))
+rownames(lmmod_df) <- 1:nrow(lmmod_df)
+lmmod_dfglpyho <- cbind(lmmod_df, confint(lmmod, level = 0.95))
+
+
+#Linear model for environmental variable
+lmmod <- lm(data= lmdb, logAMPA ~ pH + MO + CEC + ISP + Argile + Fe)
+summary(lmmod)
+sum.lin.mod.glypho <- summary(lmmod)
+
+#Linear model for cropping variable
+lmmod <- aov(data= lmdb, logAMPA ~ Gly4ans + gFertiOrg + gTravail)
+summary(lmmod)
+sum.lin.mod.glypho <- summary(lmmod)
+
+#Perform linear model
+lmmod <- lm(data= lmdb, logAMPA ~ GlyBH3years + ISP + Argile + pH +  CEC)
+summary(lmmod)
+sum.lin.mod.glypho <- summary(lmmod)
+
+#Significance of coefficients
+lmmod_df <- data.frame(summary(lmmod)$coefficients)
+lmmod_df$descr <- as.factor(c("Intercept", "Last 3 years
+                              GBH applications", "ISP", 
+                                 "Clay content", "pH", "CEC"))
+lmmod_df$descr <- factor(lmmod_df$descr, levels = lmmod_df$descr)
+lmmod_df$is_significant <- factor(ifelse(lmmod_df$Pr...t.. <= 0.05, "significant effect", "non-significant effect"))
+rownames(lmmod_df) <- 1:nrow(lmmod_df)
+lmmod_dfAMPA <- cbind(lmmod_df, confint(lmmod, level = 0.95))
+
+lmmod_dfAMPA$Pesticide <- "AMPA"
+lmmod_dfglpyho$Pesticide <- "Glyphosate"
+lmmodcomb <- rbind(lmmod_dfAMPA, lmmod_dfglpyho)
+lmmodcomb$Pesticide <- factor(lmmodcomb$Pesticide, levels = c("Glyphosate", "AMPA"))
+
+ggplot(lmmodcomb[-c(1,7), ], aes(x=Estimate, y=descr)) +
+  geom_vline(xintercept = 0, linetype = 2) +
+  geom_errorbarh(aes(xmin = `2.5 %`, xmax = `97.5 %`), height = 0.4) +
+  geom_point(aes(fill=is_significant), size=10, shape=21) +
+  facet_grid(~Pesticide)+
+  scale_fill_manual(values = c('black', 'white')) +
+  guides(fill=guide_legend(title=" ")) +
+  theme(legend.position="bottom") +
+  xlab("Coefficient of standardized values") +
+  ylab("")+
+   plotLEMfig4
+ggsave('output/Figure4.jpeg', dpi=500, width=8, height=5)
+```
+# Create figure 5
+```{r}
+plotLEMfig5 <- list(
+  #scale_fill_manual(values = color_lem),
+  #scale_color_manual(values = color_lem),
+  theme_light(),
+  theme(axis.text.y = element_text(size=12), 
+        axis.title= element_text(size=14, face = "bold"), 
+        legend.text = element_text(size=8), 
+        strip.text.x = element_text(face = "bold", size = 12, color = "black"),
+        strip.text.y = element_text(face = "bold", size = 12, color = "black")),
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()),
+  theme(plot.title=element_text(size=15, face="bold", color="black")),
+  theme(plot.subtitle=element_text(size=10, face="italic", color="black")),
+  theme(legend.position="bottom")
+)
+
+alphadiversityvar <- c("site4ans", "horizon", "annee", "Shannon_EMP", "Shannon_BITS", "Shannon_EUC", "BT_sec", "CT_sec")
+heatmapdf <- results[,alphadiversityvar,] %>%
+   dplyr::rename(Shannon_Prok = Shannon_EMP, Shannon_Fung = Shannon_BITS, Shannon_Euk = Shannon_EUC, Total_Prok = BT_sec, Total_Fung = CT_sec) %>%
+  gather("Métrique", "Value", "Shannon_Prok", "Shannon_Fung", "Shannon_Euk", "Total_Prok", "Total_Fung") %>%
+  group_by(Métrique) %>% mutate(Value = scale(Value, scale = T)) %>%
+  group_by(site4ans, horizon, annee, Métrique) %>% summarise(Value=mean(Value)) %>%
+  mutate(Métrique = factor(Métrique, level=c("Total_Fung","Total_Prok", "Shannon_Euk", "Shannon_Fung", "Shannon_Prok")))
+
+ggplot(heatmapdf, aes(x=site4ans, y=Métrique, fill = Value)) +
+        geom_tile(color="white", size=0.1) +
+        geom_text(aes(label=round(Value,2)), size = 2.5) +
+        viridis::scale_fill_viridis( name = "Value", alpha=0.8)+
+        #coord_equal() +
+        facet_grid(horizon~annee)+
+        xlab("Site ordered by cumulative GBH application")+
+        ylab("Diversity and abundance variables")+
+  plotLEMfig5
+ggsave(filename = "output/Figure5.png", width = 8, height = 5, units = c("in"), dpi = 500)
+```
+
+# Figure 6
+```{r}
+#Import BIOM files
+phyloEMP <- readRDS("raw_data/400120_emp.norm")
+phyloBITS <- readRDS("raw_data/400120_bits.norm")
+phyloEUC <- readRDS("raw_data/400120_euc.norm")
+
+#Update OTU table to remove useless sample
+phyloEMP <- prune_samples(!(sample_names(phyloEMP) %in% '25EMP400120'), phyloEMP)
+phyloBITS <- prune_samples(!(sample_names(phyloBITS) %in% '25BITS400120'), phyloBITS)
+phyloEUC <- prune_samples(!(sample_names(phyloEUC) %in% '25EUC400120'), phyloEUC)
+
+#Import new meta-data file
+metadata <- readxl::read_excel("raw_data/MAP.xlsx")
+colnames(metadata)[2] <- "SampID"
+metadata$HBG_Applications <- metadata$Gly3ans_chiffre
+metadata <- metadata %>%
+  mutate(TextureClass = recode(TextureClass, 'CT' = 'Sandy soil', 'MT' = 'Loamy soil', 'FT' = 'Clay soil'),
+         Gly3ans_chiffre = recode(Gly3ans_chiffre,  "<1350 g/ha/year" = "<5400 g/ha",">1350 g/ha/year"= ">5400 g/ha"))
+# Update meta-data for EMPS BIOM file
+metadata <- sample_data(metadata)
+rownames(metadata) <- metadata$ID
+metadata$ApplicationsHBG <- metadata$GlyBH3years
+metadata$annee <- factor(metadata$annee)
+phyloEMP@sam_data <- metadata
+
+# Update meta-data for BITS BIOM file
+metadata$ID <- gsub("EMP", "BITS", metadata$ID)
+rownames(metadata) <- metadata$ID
+phyloBITS@sam_data <- metadata
+
+# Update meta-data for EUC BIOM file
+metadata$ID <- gsub("BITS", "EUC", metadata$ID)
+rownames(metadata) <- metadata$ID
+phyloEUC@sam_data <- metadata
+
+# Create ggplot themes
+color_lem <- c("#4DAF4A", "#FF7F00", "#E41A1C")
+plotLEMfig6 <- list(
+  scale_fill_manual(values = color_lem),
+  scale_color_manual(values = color_lem),
+  theme_light(),
+  theme(axis.text.y = element_text(size=12), 
+        axis.title= element_text(size=13), 
+        legend.text = element_text(size=8),
+        legend.title = element_text(size=9),
+        strip.text.x = element_text(face = "bold", size = 12, color = "black"),
+        strip.text.y = element_text(face = "bold", size = 12, color = "black")),
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()),
+  theme(plot.title=element_text(size=15, face="bold", color="black")),
+  theme(plot.subtitle=element_text(size=10, face="italic", color="black")),
+  theme(legend.position="bottom")
+)
+
+
+ord = ordinate(phyloEMP, "PCoA", "bray")
+(ordplot <- plot_ordination(phyloEMP, ord, "samples", color="TextureClass",shape="TextureClass"))
+vector <- ordplot$data
+vector$TextureClass <- factor(vector$TextureClass, levels = c("Clay soil", "Loamy soil", "Sandy soil"))
+vector$GBH_Applications <- factor(vector$Gly3ans_chiffre, levels = c("None (Organic)", "<5400 g/ha", ">5400 g/ha"))
+
+ordprok <- ggplot(data= vector, aes(Axis.1, Axis.2))+
+  geom_point(aes(color = TextureClass, shape = GBH_Applications))+
+  ggtitle("Procaryotes")+
+  stat_ellipse(type = "t", linetype = 2, geom= "polygon", aes(fill = TextureClass), alpha=0.2)+
+  plotLEMfig6
+ordprok
+#ggsave(filename = "output/Ordinationprok.png", width = 18, height = 9, units = c("in"), dpi = 500,bg = "white" )
+
+ord = ordinate(phyloBITS, "PCoA", "bray")
+(ordplot <- plot_ordination(phyloBITS, ord, "samples", color="TextureClass",shape="TextureClass"))
+vector <- ordplot$data
+vector$TextureClass <- factor(vector$TextureClass, levels = c("Clay soil", "Loamy soil", "Sandy soil"))
+vector$GBH_Applications <- factor(vector$Gly3ans_chiffre, levels = c("None (Organic)", "<5400 g/ha", ">5400 g/ha"))
+
+ordfung <- ggplot(data= vector, aes(Axis.1, Axis.2))+
+  geom_point(aes(color = TextureClass, shape = GBH_Applications))+
+  ggtitle("Fungi")+
+  stat_ellipse(type = "t", linetype = 2, geom= "polygon", aes(fill = TextureClass), alpha=0.2)+
+  plotLEMfig6
+
+ord = ordinate(phyloEUC, "PCoA", "bray")
+(ordplot <- plot_ordination(phyloEUC, ord, "samples", color="TextureClass",shape="TextureClass"))
+vector <- ordplot$data
+vector$TextureClass <- factor(vector$TextureClass, levels = c("Clay soil", "Loamy soil", "Sandy soil"))
+vector$GBH_Applications <- factor(vector$Gly3ans_chiffre, levels = c("None (Organic)", "<5400 g/ha", ">5400 g/ha"))
+
+ordeuc <- ggplot(data= vector, aes(Axis.1, Axis.2))+
+  geom_point(aes(color = TextureClass, shape = GBH_Applications))+
+  ggtitle("Eukaryotes")+
+  stat_ellipse(type = "t", linetype = 2, geom= "polygon", aes(fill = TextureClass), alpha=0.2)+
+  plotLEMfig6
+
+ggarrange(ordprok, ordfung, ordeuc, ncol= 3, nrow=1, common.legend = T, legend = "bottom")
+ggsave(filename = "output/OFigure6.png", width = 8, height = 5, units = c("in"), dpi = 500,bg = "white" )
+
+
+```
+
+# Figure 7
+```{r}
+plotLEMfig7 <- list(
+  #scale_fill_manual(values = color_lem),
+  #scale_color_manual(values = color_lem),
+  theme_light(),
+  theme(axis.text.y = element_text(size=10), 
+        axis.title= element_text(size=14, face = "bold"), 
+        legend.text = element_text(size=10), 
+        strip.text.x = element_text(face = "bold", size = 12, color = "black"),
+        strip.text.y = element_text(face = "bold", size = 12, color = "black")),
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()),
+  theme(plot.title=element_text(size=18, face="bold", color="black")),
+  theme(plot.subtitle=element_text(size=10, face="italic", color="black")),
+  theme(legend.position="bottom")
+)
+
+alphadiversityvar <- c("thiO", "phnN", "phnIGHL", "phnP", "phnM", "phnJ", "ko00440", "Glypho_target", "Carbon_fixation", "Nitrogen_nitri", "Denitrification", "Sulfur_metabolism", "site4ans", "horizon", "annee")
+
+heatmapdf <- results[,alphadiversityvar,] %>%
+   dplyr::rename(Nitrification = Nitrogen_nitri, Phosphonate_metabolism = ko00440, Shikimate_pathway = Glypho_target) %>%
+  gather("Métrique", "Value", "thiO", "phnN", "phnIGHL", "phnP", "phnM", "phnJ", "Carbon_fixation", "Sulfur_metabolism", "Nitrification", "Denitrification", "Phosphonate_metabolism", "Shikimate_pathway") %>%
+  group_by(Métrique) %>% mutate(Value = scale(Value, scale = T)) %>%
+  group_by(site4ans, horizon, annee, Métrique) %>% summarise(Value=mean(Value)) %>% mutate(Cluster = ifelse(Métrique %in% c("thiO", "phnN", "phnIGHL", "phnP", "phnM", "phnJ", "Shikimate_pathway"), "Glyphosate", "General"))
+
+ggplot(heatmapdf, aes(x=site4ans, y=Métrique, fill = Value)) +
+        geom_tile(color="white", size=0.1) +
+        geom_text(aes(label=round(Value,2)), size = 1.5) +
+        viridis::scale_fill_viridis(name = "Value", alpha=0.8)+
+        #coord_equal() +
+        facet_grid(Cluster~horizon*annee, scales = "free", space = "free")+
+        xlab("Site ordered by cumulative GBH application")+
+        ylab("Genes of interest")+
+  plotLEMfig7
+ggsave(filename = "output/Figure7.png", width = 8, height = 5, units = c("in"), dpi = 500)
+
+```
+
+
+# Create figure S1
+```{r}
+color_lem <- c("#4DAF4A", "#FF7F00", "#E41A1C")
+plotLEMfigS1 <- list(
+  scale_fill_manual(values = color_lem),
+  scale_color_manual(values = color_lem),
+  theme_light(),
+  theme(axis.text.y = element_text(size=12), 
+        axis.text.x = element_text(size = 8, angle= 30),
+        axis.title= element_text(face = "bold", size=12),
+        legend.key.size = unit(1.2, 'cm'),
+        legend.title = element_text(face = "bold", size=13),
+        legend.text = element_text(size=12), 
+        strip.text.x = element_text(face = "bold", size = 15, color = "black"),
+        strip.text.y = element_text(face = "bold", size = 15, color = "black")),
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()),
+  theme(plot.title=element_text(size=15, face="bold", color="black")),
+  theme(plot.subtitle=element_text(size=10, face="italic", color="black")),
+  theme(legend.position="bottom"))
+  
+sample2019 <- results[results$annee == 2019, ]
+sample2020 <- results[results$annee == 2020, ]
+
+sample2019ord <- sample2019[order(sample2019$site),]
+sample2020ord <- sample2020[order(sample2020$site),]
+
+sample2020ord <-  sample2020ord %>%
+  mutate(Glyphosate = sample2020ord$Glyphosate - sample2019ord$Glyphosate, diffappglypho = sample2020ord$Glypho_annee_echant-sample2020ord$Glypho_moyenne_3_dernieres_annees, AMPA = sample2020ord$AMPA - sample2019ord$AMPA) %>%
+  mutate(Gly3ans_chiffre = recode(Gly3ans_chiffre,  "<1350 g/ha/year" = "<5400 g.ha-1",">1350 g/ha/year"= ">5400 g.ha-1")) %>%
+  mutate(Gly3ans_chiffre = factor(Gly3ans_chiffre, levels= c("None (Organic)", "<5400 g.ha-1", ">5400 g.ha-1" )))%>%
+  gather("Pesticide", "qt", "AMPA", "Glyphosate") %>%
+  mutate(Pesticide = factor(Pesticide, level=c("Glyphosate","AMPA")))
+
+df_label <- data.frame(
+  Pvalue = c("P<0.001", "P=0.462", "P=0.296", "P<0.001"),
+  horizon = c("0-20cm", "0-20cm", "20-40cm", "20-40cm"),
+  Pesticide = c("Glyphosate","AMPA" , "Glyphosate", "AMPA"),
+  R2 = c("R2=40%", "R2=0%", "R2=3%", "R2=39%")
+) %>%
+  mutate(Pesticide = factor(Pesticide, level=c("Glyphosate","AMPA")))
+
+ggplot(sample2020ord, aes(diffappglypho, qt))+
+  geom_point(aes(color = Gly3ans_chiffre))+
+  facet_grid(Pesticide~horizon, scales = "free") +
+  geom_smooth(method = "lm")+
+  scale_x_continuous(breaks = seq(-500, 1500, 500))+
+  ylab("Difference in μg.g-1 dry soil between 2019 and 2020")+
+  xlab("Difference between GBH application in 2020 and average of 2017-2019")+
+  ggtitle("Change in glyphosate and AMPA content between 2019 and 2020")+
+  geom_text(
+  data    = df_label,
+  mapping = aes(x = -500, y = 0.5, 
+                label = Pvalue))+
+  geom_text(
+  data    = df_label,
+  mapping = aes(x = -500, y = 0.3, 
+                label = R2))+
+  labs(color= "GBH applications")+
+  plotLEMfigS1+
+  theme(plot.title=element_text(size=15, face="bold", color="black"))
+ggsave("output/FigureS1.jpg", width = 8, height = 5, units = c("in"), dpi = 500)
+
+```
+
+
+# Create figure S2
+```{r}
+
+lmdb2 <- results %>%
+  filter(horizon == "0-20cm")
+
+lmdb <- lmdb2 %>%
+  dplyr::select(ID, site4ans, annee, horizon, Gly4ans, GlyBH3years, CroppingSys, gFertiOrg, gTravail, pH, CEC, ISP, P, Argile, Fe, Kd, MO, pH_SMP)
+
+#Scale all features
+lmdbnum <- sapply(lmdb, is.numeric) 
+lmdb[lmdbnum] <- sapply(lmdb[lmdbnum], scale, scale=T)
+#Add response variable and log-transform it
+Glyphosate <- lmdb2$Glyphosate
+AMPA <- lmdb2$AMPA
+lmdb <- cbind(lmdb,Glyphosate, AMPA)
+lmdb <- lmdb %>%
+  dplyr::mutate(logGlypho = log(Glyphosate)) %>%
+  dplyr::mutate(logAMPA = log(AMPA))
+
+
+#Linear model for environmental variable
+lmmod <- lm(data= lmdb, logGlypho ~ pH + MO + CEC + ISP + Argile + Fe)
+summary(lmmod)
+sum.lin.mod.glypho <- summary(lmmod)
+
+#Linear model for cropping variable
+lmmod <- aov(data= lmdb, logGlypho ~ Gly4ans + gFertiOrg + CroppingSys)
+summary(lmmod)
+sum.lin.mod.glypho <- summary(lmmod)
+
+#Perform linear model
+lmmod <- lm(data= lmdb, logGlypho ~ GlyBH3years + ISP + Argile + pH + CEC )
+summary(lmmod)
+sum.lin.mod.glypho <- summary(lmmod)
+
+#Significance of coefficients
+lmmod_df <- data.frame(summary(lmmod)$coefficients)
+lmmod_df$descr <- as.factor(c("Intercept", "Last 3 years
+                              GBH applications", "ISP", 
+                                 "Clay content", "pH", "CEC"))
+lmmod_df$descr <- factor(lmmod_df$descr, levels = lmmod_df$descr)
+lmmod_df$is_significant <- factor(ifelse(lmmod_df$Pr...t.. <= 0.05, "significant effect", "non-significant effect"))
+rownames(lmmod_df) <- 1:nrow(lmmod_df)
+lmmod_dfglpyho <- cbind(lmmod_df, confint(lmmod, level = 0.95))
+
+
+#Linear model for environmental variable
+lmmod <- lm(data= lmdb, logAMPA ~ pH + MO + CEC + ISP + Argile + Fe)
+summary(lmmod)
+sum.lin.mod.glypho <- summary(lmmod)
+
+#Linear model for cropping variable
+lmmod <- aov(data= lmdb, logAMPA ~ Gly4ans + gFertiOrg + gTravail)
+summary(lmmod)
+sum.lin.mod.glypho <- summary(lmmod)
+
+#Perform linear model
+lmmod <- lm(data= lmdb, logAMPA ~ GlyBH3years + ISP + Argile + pH +  CEC)
+summary(lmmod)
+sum.lin.mod.glypho <- summary(lmmod)
+
+#Significance of coefficients
+lmmod_df <- data.frame(summary(lmmod)$coefficients)
+lmmod_df$descr <- as.factor(c("Intercept", "Last 3 years
+                              GBH applications", "ISP", 
+                                 "Clay content", "pH", "CEC"))
+lmmod_df$descr <- factor(lmmod_df$descr, levels = lmmod_df$descr)
+lmmod_df$is_significant <- factor(ifelse(lmmod_df$Pr...t.. <= 0.05, "significant effect", "non-significant effect"))
+rownames(lmmod_df) <- 1:nrow(lmmod_df)
+lmmod_dfAMPA <- cbind(lmmod_df, confint(lmmod, level = 0.95))
+
+lmmod_dfAMPA$Pesticide <- "AMPA"
+lmmod_dfglpyho$Pesticide <- "Glyphosate"
+lmmodcomb <- rbind(lmmod_dfAMPA, lmmod_dfglpyho)
+lmmodcomb$Pesticide <- factor(lmmodcomb$Pesticide, levels = c("Glyphosate", "AMPA"))
+
+ggplot(lmmodcomb[-c(1,7), ], aes(x=Estimate, y=descr)) +
+  geom_vline(xintercept = 0, linetype = 2) +
+  geom_errorbarh(aes(xmin = `2.5 %`, xmax = `97.5 %`), height = 0.4) +
+  geom_point(aes(fill=is_significant), size=10, shape=21) +
+  facet_grid(~Pesticide)+
+  scale_fill_manual(values = c('black', 'white')) +
+  guides(fill=guide_legend(title=" ")) +
+  theme(legend.position="bottom") +
+  xlab("Coefficient of standardized values") +
+  ylab("")+
+   plotLEMfig5
+ggsave('output/figureS2.jpeg', dpi=500, width=8, height=5)
+```
