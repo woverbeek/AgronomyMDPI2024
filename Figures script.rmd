@@ -5,7 +5,9 @@ source(here::here("scripts", "library.R"))
 ipak()
 source(here::here("scripts", "data_import.R"))
 library(ggmap)
+library(ggspatial)
 library(ggalluvial)
+library(ggtext)
 
 GPSpoints <- read.csv("raw_data/Coordonees GPS.csv")
 results <- readxl::read_excel("raw_data/MAP.xlsx")
@@ -25,15 +27,17 @@ sbbox
 #Create zoomed-in map and save it
 sq_map <- get_map(location = sbbox, maptype= "satellite", source = "google", zoom = 9)
 ggmap(sq_map)+geom_point(data= GPSpoints, mapping = aes(long, lat), color = "red")+
-  geom_text(data=GPSpoints, aes(long, lat, label = sites), hjust=-1, color = "yellow")
+  geom_text(data=GPSpoints, aes(long, lat, label = sites), hjust=-1, color = "yellow") +
+  annotation_north_arrow(location = "tl")
 
 ggsave(here::here("output", paste0("figure1_1.png")),
 width = 8, height = 5, units = c("in"), dpi = 300)
 
 #Create zoomed-out map and save it
 sq_map <- get_map(location = sbbox, maptype= "satellite", source = "google", zoom = 3)
-ggmap(sq_map)+geom_point(data= GPSpoints, mapping = aes(long, lat), color = "red")
-  #geom_text(data=GPSpoints, aes(long, lat, label = sites), hjust=-1, color = "yellow")
+ggmap(sq_map)+geom_point(data= GPSpoints, mapping = aes(long, lat), color = "red")+
+  #geom_text(data=GPSpoints, aes(long, lat, label = sites), hjust=-1, color = "yellow")+
+  annotation_north_arrow(location = "tl")
 
 ggsave(here::here("output", paste0("figure1_2.png")),
 width = 8, height = 5, units = c("in"), dpi = 300)
@@ -174,7 +178,7 @@ ggplot(tmp2, aes(Year, mean))+
   geom_text(aes(label = Letters, y= Height))+
   facet_grid(Pesticide~`Producer ID`, scales = "free") +
   labs(x="Sampling year",
-       y="Content in the soil horizon (μg.g-1 dry soil)") +
+       y=expression(paste('Content in the soil horizon ( ', μg.g^{-1}, 'dry soil)'))) +
   plotLEMfig3
 ggsave('output/Figure3.jpeg', dpi=500, width=8, height=5)
 ```
@@ -381,17 +385,21 @@ plotLEMfig6 <- list(
   theme(legend.position="bottom")
 )
 
-
+?ordinate()
 ord = ordinate(phyloEMP, "PCoA", "bray")
 (ordplot <- plot_ordination(phyloEMP, ord, "samples", color="TextureClass",shape="TextureClass"))
 vector <- ordplot$data
 vector$TextureClass <- factor(vector$TextureClass, levels = c("Clay soil", "Loamy soil", "Sandy soil"))
 vector$GBH_Applications <- factor(vector$Gly3ans_chiffre, levels = c("None (Organic)", "<5400 g/ha", ">5400 g/ha"))
+Axis1 <- ord$values$Relative_eig[1]*100
+Axis2 <- ord$values$Relative_eig[2]*100
 
 ordprok <- ggplot(data= vector, aes(Axis.1, Axis.2))+
   geom_point(aes(color = TextureClass, shape = GBH_Applications))+
   ggtitle("Procaryotes")+
   stat_ellipse(type = "t", linetype = 2, geom= "polygon", aes(fill = TextureClass), alpha=0.2)+
+  xlab("Axis 1 [20.1%]")+
+  ylab("Axis 2 [10.4%]")+
   plotLEMfig6
 ordprok
 #ggsave(filename = "output/Ordinationprok.png", width = 18, height = 9, units = c("in"), dpi = 500,bg = "white" )
@@ -401,10 +409,14 @@ ord = ordinate(phyloBITS, "PCoA", "bray")
 vector <- ordplot$data
 vector$TextureClass <- factor(vector$TextureClass, levels = c("Clay soil", "Loamy soil", "Sandy soil"))
 vector$GBH_Applications <- factor(vector$Gly3ans_chiffre, levels = c("None (Organic)", "<5400 g/ha", ">5400 g/ha"))
+Axis1 <- ord$values$Relative_eig[1]*100
+Axis2 <- ord$values$Relative_eig[2]*100
 
 ordfung <- ggplot(data= vector, aes(Axis.1, Axis.2))+
   geom_point(aes(color = TextureClass, shape = GBH_Applications))+
   ggtitle("Fungi")+
+   xlab("Axis 1 [9.5%]")+
+  ylab("Axis 2 [9.0%]")+
   stat_ellipse(type = "t", linetype = 2, geom= "polygon", aes(fill = TextureClass), alpha=0.2)+
   plotLEMfig6
 
@@ -413,11 +425,15 @@ ord = ordinate(phyloEUC, "PCoA", "bray")
 vector <- ordplot$data
 vector$TextureClass <- factor(vector$TextureClass, levels = c("Clay soil", "Loamy soil", "Sandy soil"))
 vector$GBH_Applications <- factor(vector$Gly3ans_chiffre, levels = c("None (Organic)", "<5400 g/ha", ">5400 g/ha"))
+Axis1 <- ord$values$Relative_eig[1]*100
+Axis2 <- ord$values$Relative_eig[2]*100
 
 ordeuc <- ggplot(data= vector, aes(Axis.1, Axis.2))+
   geom_point(aes(color = TextureClass, shape = GBH_Applications))+
   ggtitle("Eukaryotes")+
   stat_ellipse(type = "t", linetype = 2, geom= "polygon", aes(fill = TextureClass), alpha=0.2)+
+  xlab("Axis 1 [16.4%]")+
+  ylab("Axis 2 [10.5%]")+
   plotLEMfig6
 
 ggarrange(ordprok, ordfung, ordeuc, ncol= 3, nrow=1, common.legend = T, legend = "bottom")
@@ -460,7 +476,7 @@ ggplot(heatmapdf, aes(x=site4ans, y=Métrique, fill = Value)) +
         xlab("Site ordered by cumulative GBH application")+
         ylab("Genes of interest")+
   plotLEMfig7
-ggsave(filename = "output/Figure7.png", width = 8, height = 5, units = c("in"), dpi = 500)
+ggsave(filename = "output/Figure7.png", width = 8, height = 5, units = c("in"), dpi = 1000)
 
 ```
 
@@ -493,14 +509,15 @@ sample2020ord <- sample2020[order(sample2020$site),]
 
 sample2020ord <-  sample2020ord %>%
   mutate(Glyphosate = sample2020ord$Glyphosate - sample2019ord$Glyphosate, diffappglypho = sample2020ord$Glypho_annee_echant-sample2020ord$Glypho_moyenne_3_dernieres_annees, AMPA = sample2020ord$AMPA - sample2019ord$AMPA) %>%
-  mutate(Gly3ans_chiffre = recode(Gly3ans_chiffre,  "<1350 g/ha/year" = "<5400 g.ha-1",">1350 g/ha/year"= ">5400 g.ha-1")) %>%
-  mutate(Gly3ans_chiffre = factor(Gly3ans_chiffre, levels= c("None (Organic)", "<5400 g.ha-1", ">5400 g.ha-1" )))%>%
+  mutate(Gly3ans_chiffre = recode(Gly3ans_chiffre,  "<1350 g/ha/year" = "<5400 g.ha^-1",">1350 g/ha/year"= ">5400 g.ha^-1")) %>%
+  mutate(horizon = recode(horizon, "0-20cm" = "0-20 cm", "20-40cm" = "20-40 cm")) %>%
+  mutate(Gly3ans_chiffre = factor(Gly3ans_chiffre, levels= c("None (Organic)", "<5400 g.ha^-1", ">5400 g.ha^-1" )))%>%
   gather("Pesticide", "qt", "AMPA", "Glyphosate") %>%
   mutate(Pesticide = factor(Pesticide, level=c("Glyphosate","AMPA")))
 
 df_label <- data.frame(
   Pvalue = c("P<0.001", "P=0.462", "P=0.296", "P<0.001"),
-  horizon = c("0-20cm", "0-20cm", "20-40cm", "20-40cm"),
+  horizon = c("0-20 cm", "0-20 cm", "20-40 cm", "20-40 cm"),
   Pesticide = c("Glyphosate","AMPA" , "Glyphosate", "AMPA"),
   R2 = c("R2=40%", "R2=0%", "R2=3%", "R2=39%")
 ) %>%
@@ -511,7 +528,7 @@ ggplot(sample2020ord, aes(diffappglypho, qt))+
   facet_grid(Pesticide~horizon, scales = "free") +
   geom_smooth(method = "lm")+
   scale_x_continuous(breaks = seq(-500, 1500, 500))+
-  ylab("Difference in μg.g-1 dry soil between 2019 and 2020")+
+  ylab(expression(paste('Difference in ', μg.g^{-1}, 'dry soil between 2019 and 2020')))+
   xlab("Difference between GBH application in 2020 and average of 2017-2019")+
   ggtitle("Change in glyphosate and AMPA content between 2019 and 2020")+
   geom_text(
@@ -524,6 +541,7 @@ ggplot(sample2020ord, aes(diffappglypho, qt))+
                 label = R2))+
   labs(color= "GBH applications")+
   plotLEMfigS1+
+  theme(axis.title.x = element_markdown())
   theme(plot.title=element_text(size=15, face="bold", color="black"))
 ggsave("output/FigureS1.jpg", width = 8, height = 5, units = c("in"), dpi = 500)
 
